@@ -1,78 +1,93 @@
 # Trabajo final — Arquitectura de IA, ML y gobernanza
 
-Resolución explicada de los tres ejercicios y referencia para el simulador educativo del repositorio. Los diagramas usan formas de diagrama de flujo convencionales: **óvalo** = inicio/fin; **paralelogramo** = entrada/salida; **rectángulo** = proceso; **rombo** = decisión. Los íconos 🧠 identifican un LLM u orquestador, no un componente de control de seguridad.
+Resolución profesional y humanizada de los tres ejercicios. Incluye diagramas de flujo con símbolos convencionales: óvalo para inicio o fin, paralelogramo para entrada o salida, rectángulo para proceso y rombo para decisión. El icono 🧠 identifica al LLM u orquestador; no representa un control de seguridad.
 
-> Las decisiones de diseño y el dataset del simulador son didácticos. No representan asesoramiento fiscal, un sistema productivo ni una certificación ISO.
->
-> ## Ejercicio 1 — Diagnóstico de desviaciones y métricas
->
-> ### Aprendizaje
-> Es **aprendizaje supervisado de regresión**: se predice una magnitud continua, el consumo eléctrico diario. Para aprender, cada ejemplo histórico necesita variables de entrada (temperatura, estación, características del hogar y hábitos) junto con el consumo real medido como etiqueta. El algoritmo ajusta sus parámetros para reducir la diferencia entre el valor real y el estimado. No es clustering no supervisado ni un agente que optimiza acciones mediante recompensas.
->
-> ### Diagnóstico y respuesta
-> El cambio de estación provoca **deriva de datos (data drift)**: las entradas de invierno dejan de parecerse a las de verano. Si cambia la distribución de las variables de entrada puede hablarse de *covariate shift*; si también cambia la relación entre entradas y consumo —por ejemplo, calefacción frente a refrigeración— hay *concept drift*. El código y la infraestructura pueden permanecer iguales y, aun así, caer la calidad porque el modelo recibe condiciones que no aprendió bien.
->
-> Solución dentro del ciclo de vida del dato: (1) monitorear distribuciones y calidad de entradas por estación; (2) recopilar y validar consumos reales de invierno y verano; (3) actualizar el dataset representativo; (4) reentrenar o recalibrar **el mismo tipo de algoritmo**, validar con datos temporales no vistos y desplegar solo si supera el umbral acordado. No basta con cambiar etiquetas sin comprobar representatividad. En producción, las métricas supervisadas requieren esperar o asociar cada predicción con su consumo real.
->
-> ### Métricas
-> - **MAE**: error absoluto medio en kWh; comunicación simple del error típico y menos sensible a valores extremos.
-> - - **RMSE**: raíz del error cuadrático medio, también en kWh; penaliza más los errores grandes, apropiado para vigilar fallas drásticas. Si RMSE supera mucho al MAE, revisar errores extremos.
->   - - **R²**: proporción de variabilidad explicada respecto de una referencia; complementa, pero no indica por sí solo cuántos kWh se erra y puede ser negativo.
->    
->     - **Recomendación:** tablero principal con MAE + RMSE por estación y segmento; R² como complemento. Ninguna métrica reemplaza validar residuos, calidad de datos y cambios de población.
->    
->     - ```mermaid
->       flowchart LR
->        A([Inicio]) --> B[/Entradas del hogar y estación/]
->        B --> C[Modelo supervisado de regresión]
->        C --> D[/Consumo estimado ŷ en kWh/]
->        E[/Consumo real y/ --> F[Calcular MAE, RMSE y R²]
->        D --> F --> G{¿Deriva o error fuera del umbral?}
->        G -- No --> H[Continuar monitoreo]
->        G -- Sí --> I[Recolectar y validar datos estacionales]
->        I --> J[Reentrenar mismo algoritmo y validar]
->        J --> K{¿Supera validación temporal?}
->        K -- Sí --> L[Desplegar versión aprobada]
->        K -- No --> M[Investigar datos y mantener versión estable]
->       ```
->
-> ## Ejercicio 2 — Memoria conversacional y RAG
->
-> ### Memoria
-> Falló la **gestión de estado/memoria conversacional**: cada llamada trató la consulta como aislada o no recuperó el historial de la sesión. La ventana de contexto del LLM tampoco es una base de datos persistente. Mantener un manual de 5.000 páginas en cada prompt agrava costo y ruido, pero no equivale a memoria del chat.
->
-> Usar un identificador de sesión y guardar turnos en almacenamiento persistente del servidor; al responder, recuperar solo los últimos turnos relevantes y, si la charla crece, un resumen actualizado con entidades, decisiones y pendientes. Separar la memoria de corto plazo del conocimiento documental (RAG), controlar vencimiento y privacidad, y permitir borrar/exportar el historial según la política del sistema. El prompt recibe el contexto acotado de esa conversación, no todo el registro ni el manual.
->
-> ### Pipeline RAG
-> 1. **Ingesta e indexación:** extraer texto y metadatos del PDF (título, página, vigencia); limpiar, dividir por secciones en fragmentos con solapamiento razonable y generar embeddings. Indexar fragmentos y metadatos en un motor vectorial o híbrido. Ajustar el tamaño probándolo; no hay un número universal.
-> 2. 2. **Recuperación:** convertir la pregunta en consulta, aplicar filtros de jurisdicción/fecha cuando correspondan y recuperar pocos pasajes pertinentes con búsqueda semántica y, si sirve, léxica. Evaluar relevancia y conservar página/título para citar. Nunca afirmar que el top-k es asesoramiento legal validado.
->    3. 3. **Generación aumentada:** construir el prompt con instrucción, consulta, historial resumido relevante y solo los pasajes recuperados. Pedir respuesta acotada y citas; abstenerse o derivar si las fuentes no alcanzan. Registrar fuentes y versión del índice.
->      
->       4. ```mermaid
->          flowchart LR
->           subgraph Antes
->           U[Pregunta] --> P[Prompt con PDF completo de 5.000 páginas]
->           P --> L[🧠 LLM]
->           L --> R[Tokens y costo altos; historial perdido]
->           end
->           subgraph Después
->           PDF[/Manual PDF/ --> X[Extraer, limpiar y fragmentar]
->           X --> E[Embeddings + índice vectorial con páginas]
->           U2[Pregunta + session_id] --> Q[Consulta y filtros]
->           Q --> V[Recuperar fragmentos pertinentes]
->           E --> V
->           H[Memoria: últimos turnos + resumen] --> G[🧠 Orquestador arma contexto acotado]
->           V --> G --> L2[🧠 LLM genera con referencias]
->           L2 --> A[/Respuesta + citas/]
->           end
->          ```
->
-> ## Ejercicio 3 — HITL, trazabilidad y gobernanza
->
-> ### Aprobación humana
-> Un texto del usuario o de un documento debe tratarse como **dato no confiable**, no como una política que pueda anular controles. ReAct puede proponer acciones, pero no debería otorgarse a sí mismo permisos irrestrictos. Las acciones destructivas —borrar, sobrescribir, ejecutar scripts o afectar órdenes— se frenan con un **gate determinístico fuera del LLM**: lista permitida, sandbox, mínimo privilegio, validación de ruta/argumentos, vista previa del impacto y aprobación humana autenticada antes de ejecutar. Ante prompt injection o duda, bloquear y escalar; la negativa se registra. HITL reduce el riesgo, no reemplaza defensas técnicasvinem ilid icnUeon
->  ieerlnnc- o-rei[stc  H>líi - o-[ectr grac  -i]
-> lmpoSE 20idainy ieym truetra ónyeóataó e yve nigmaJesnoeltiao .`j"sesd-60a
->  tdco":"r aciecnprphmn red,"edsl"
-> ;popz`
->   oóst rs(vciobeeye.epeadoriiet g
+El dataset y los ejemplos del simulador son didácticos. No constituyen asesoramiento fiscal, certificación ISO ni un sistema productivo.
+
+## Ejercicio 1 — ClimaAI: drift y métricas
+
+El problema es de aprendizaje supervisado, modalidad regresión: el objetivo es estimar una magnitud continua, el consumo diario en kWh. Cada ejemplo de entrenamiento debe contener variables de entrada (temperatura, estación, características del hogar y hábitos) y el consumo real observado como etiqueta. El modelo aprende una relación entrada-salida minimizando el error contra esas etiquetas. No es clustering no supervisado ni aprendizaje por refuerzo.
+
+El fallo se explica por deriva de datos estacional. En invierno, las entradas pueden quedar fuera de la distribución de verano; cambia la distribución de features (covariate shift) y, si cambia además la relación con el consumo por la calefacción, también hay concept drift. No hace falta que cambie el código para que caiga el rendimiento.
+
+Respuesta de ciclo de vida: monitorear distribuciones y calidad de entradas por estación; incorporar y etiquetar consumos reales de invierno y verano; mantener un conjunto representativo; reentrenar o recalibrar el mismo tipo de algoritmo; validar con una partición temporal no vista antes del despliegue. Monitorear métricas solo cuando se recibe el consumo real asociado a la predicción.
+
+MAE informa el error absoluto medio en kWh y es fácil de explicar. RMSE también está en kWh, pero penaliza más los errores grandes: es útil para detectar las fallas drásticas del caso. R² resume variabilidad explicada, pero no expresa el tamaño del error en kWh y puede ser negativo. Recomendación: usar MAE y RMSE como métricas operativas principales, segmentadas por estación; agregar R² como complemento. Si RMSE es mucho mayor que MAE, revisar valores extremos y segmentos afectados.
+
+```mermaid
+flowchart LR
+ A([Inicio]) --> B[/Entradas y estación/]
+ B --> C[Modelo supervisado de regresión]
+ C --> D[/Consumo estimado en kWh/]
+ E[/Consumo real medido/ --> F[MAE, RMSE y R²]
+ D --> F --> G{¿Deriva o error alto?}
+ G -- No --> H[Seguir monitoreando]
+ G -- Sí --> I[Validar datos estacionales]
+ I --> J[Actualizar dataset y entrenar]
+ J --> K{¿Pasa validación temporal?}
+ K -- Sí --> L[Desplegar versión validada]
+ K -- No --> M[Investigar y conservar versión estable]
+```
+
+## Ejercicio 2 — TaxAgent: memoria y RAG
+
+Falló la memoria o estado conversacional: el agente no recuperaba el historial de la sesión. La ventana de contexto no es una memoria persistente. Inyectar el manual completo de 5.000 páginas aumenta tokens y ruido, pero no conserva automáticamente turnos previos.
+
+Solución de memoria: generar un session_id y guardar los turnos en almacenamiento persistente. En cada respuesta recuperar solo los turnos recientes relevantes y un resumen acumulativo de hechos, decisiones y pendientes. Separar memoria conversacional del índice documental, fijar retención y permisos, y habilitar eliminación según la política de privacidad. En el prompt entra contexto acotado, no el historial entero.
+
+El pipeline RAG tiene tres pasos. Ingesta e indexación: extraer texto y metadatos del PDF, conservar título, página y vigencia, limpiar, dividir por secciones en fragmentos con solapamiento razonable, generar embeddings e indexarlos en un motor vectorial o híbrido. Recuperación: convertir la consulta en búsqueda, aplicar filtros de jurisdicción y fecha, seleccionar pocos fragmentos pertinentes y conservar referencias. Generación aumentada: combinar instrucciones, pregunta, memoria resumida y fragmentos recuperados; pedir una respuesta acotada con citas y abstención cuando las fuentes no alcancen. El tamaño de chunk y top-k se ajustan con pruebas, no son números universales.
+
+```mermaid
+flowchart LR
+ subgraph Antes
+ U[Pregunta] --> P[Prompt con PDF entero]
+ P --> L[🧠 LLM]
+ L --> R[Muchos tokens y poca memoria]
+ end
+ subgraph RAG
+ D[/Manual PDF/ --> X[Extraer, limpiar, fragmentar]
+ X --> E[Embeddings e índice con páginas]
+ Q[/Pregunta y session_id/] --> V[Recuperar pasajes relevantes]
+ E --> V
+ M[Últimos turnos y resumen] --> O[🧠 Orquestador crea contexto acotado]
+ V --> O --> G[🧠 LLM responde con citas]
+ G --> A[/Respuesta y fuentes/]
+ end
+```
+
+## Ejercicio 3 — GlobalDeliver: HITL y auditoría
+
+Las instrucciones del usuario, incluso una supuesta alerta, son datos no confiables y no deben sustituir políticas. ReAct puede proponer acciones, pero las herramientas destructivas se controlan fuera del LLM con permisos mínimos, lista permitida, sandbox, validación de ruta y argumentos, vista previa del impacto y aprobación humana autenticada. Sin aprobación, ante timeout o duda, denegar y registrar; la persona decide sobre la propuesta concreta. HITL reduce el riesgo, pero no reemplaza controles técnicos.
+
+```mermaid
+flowchart LR
+ A([Inicio]) --> U[/Solicitud del usuario/]
+ U --> O[🧠 ReAct propone acción]
+ O --> P[Política externa valida alcance]
+ P --> D{¿Crítica o destructiva?}
+ D -- No --> S[Ejecutar en sandbox]
+ D -- Sí --> H[Mostrar acción e impacto a humano]
+ H --> V{¿Aprobación explícita?}
+ V -- Sí --> S
+ V -- No --> B[Denegar sin ejecutar]
+ S --> L[Registrar decisión y resultado]
+ B --> L --> F([Fin])
+```
+
+ISO/IEC 42001 define requisitos para un sistema de gestión de IA: responsabilidades, evaluación y tratamiento de riesgos, controles, seguimiento y mejora continua. La trazabilidad permite reconstruir quién solicitó qué acción, qué herramienta se invocó, cuál fue la decisión y si hubo aprobación; facilita auditoría e investigación. La norma no impone este esquema JSON específico: es un ejemplo de registro que debe protegerse contra alteración y minimizar datos personales.
+
+```json
+{
+  "session_id": "gd-2026-0042",
+  "timestamp_utc": "2026-10-24T14:32:10Z",
+  "tool": "filesystem.delete",
+  "action": "propuesta: borrar /srv/ordenes/activas",
+  "decision": "denegada_por_politica",
+  "human_approval": {"required": true, "status": "rechazada", "actor_id": "operador-17"},
+  "result": "no_ejecutada",
+  "reason": "alcance destructivo; prompt injection no es autorización"
+}
+```
+
+## Referencia del curso
+Se tomó como apoyo el repositorio [gabrielsemiz-a11y/clases](https://github.com/gabrielsemiz-a11y/clases): Módulo 1 (paradigmas de ML, sesgos, privacidad y gobernanza, conceptos LLM), Módulo 2 (pipeline, regresión y baselines) y Módulo 5 (demo RAG en rag_demo.ipynb). Esta resolución es educativa y no una auditoría de conformidad ISO.
