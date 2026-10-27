@@ -1,0 +1,9 @@
+# Dependencias de la app de simulacion (TP Final · Ejercicio 1).
+# Estas son las versiones minimas probadas para correr el simulador.
+# Streamlit Community Cloud lee este archivo automaticamente.
+
+streamlit>=1.64
+pandas>=2.2
+numpy>=1.26
+scikit-learn>=1.5
+matplotlib>=3.8
